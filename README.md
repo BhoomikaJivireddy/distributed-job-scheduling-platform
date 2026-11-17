@@ -82,6 +82,8 @@ The monitoring dashboard includes:
 - JVM memory usage
 
 Loki and Grafana Alloy are used for centralized log collection.
+<img width="1912" height="716" alt="Screenshot 2026-11-17 080530" src="https://github.com/user-attachments/assets/f98269d8-40ff-446d-93ec-dfcd463f5636" />
+
 
 ## Running the Project
 
