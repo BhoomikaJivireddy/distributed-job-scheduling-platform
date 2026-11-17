@@ -1,0 +1,83 @@
+CREATE TABLE jobs (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    name VARCHAR(150) NOT NULL,
+    job_type VARCHAR(40) NOT NULL,
+    payload VARCHAR(10000) NOT NULL,
+    priority INT NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    scheduled_at DATETIME(6) NULL,
+    next_run_at DATETIME(6) NOT NULL,
+    max_retries INT NOT NULL,
+    attempt_count INT NOT NULL,
+    timeout_seconds INT NOT NULL,
+    worker_id VARCHAR(100) NULL,
+    queued_at DATETIME(6) NULL,
+    started_at DATETIME(6) NULL,
+    finished_at DATETIME(6) NULL,
+    lease_expires_at DATETIME(6) NULL,
+    last_error VARCHAR(2000) NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (id),
+    KEY idx_jobs_dispatch (status, next_run_at),
+    KEY idx_jobs_queued (status, queued_at),
+    KEY idx_jobs_lease (status, lease_expires_at),
+    KEY idx_jobs_type_status (job_type, status),
+    KEY idx_jobs_created (created_at),
+    KEY idx_jobs_updated (updated_at),
+    CONSTRAINT chk_jobs_priority CHECK (priority BETWEEN 1 AND 10),
+    CONSTRAINT chk_jobs_max_retries CHECK (max_retries >= 0),
+    CONSTRAINT chk_jobs_timeout CHECK (timeout_seconds > 0),
+    CONSTRAINT chk_jobs_status CHECK (status IN ('PENDING', 'SCHEDULED', 'QUEUED', 'RUNNING', 'COMPLETED', 'FAILED', 'RETRYING', 'CANCELLED', 'DEAD'))
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+
+CREATE TABLE job_executions (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    job_id BIGINT NOT NULL,
+    attempt_number INT NOT NULL,
+    worker_id VARCHAR(100) NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    started_at DATETIME(6) NOT NULL,
+    finished_at DATETIME(6) NULL,
+    duration_ms BIGINT NULL,
+    result VARCHAR(4000) NULL,
+    error_message VARCHAR(2000) NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_job_executions_attempt (job_id, attempt_number),
+    KEY idx_job_executions_started (started_at),
+    KEY idx_job_executions_status (status),
+    CONSTRAINT fk_job_executions_job FOREIGN KEY (job_id) REFERENCES jobs (id) ON DELETE CASCADE,
+    CONSTRAINT chk_job_executions_status CHECK (status IN ('RUNNING', 'COMPLETED', 'FAILED', 'TIMED_OUT', 'ABANDONED'))
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+
+CREATE TABLE workers (
+    id VARCHAR(100) NOT NULL,
+    hostname VARCHAR(255) NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    concurrency INT NOT NULL,
+    current_executions INT NOT NULL,
+    jobs_completed BIGINT NOT NULL,
+    jobs_failed BIGINT NOT NULL,
+    started_at DATETIME(6) NOT NULL,
+    last_heartbeat_at DATETIME(6) NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (id),
+    KEY idx_workers_heartbeat (status, last_heartbeat_at),
+    CONSTRAINT chk_workers_status CHECK (status IN ('ACTIVE', 'INACTIVE'))
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+
+CREATE TABLE idempotency_records (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    idempotency_key VARCHAR(100) NOT NULL,
+    request_hash VARCHAR(64) NOT NULL,
+    job_id BIGINT NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_idempotency_key (idempotency_key),
+    UNIQUE KEY uk_idempotency_job (job_id),
+    CONSTRAINT fk_idempotency_job FOREIGN KEY (job_id) REFERENCES jobs (id) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;

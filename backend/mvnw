@@ -1,0 +1,28 @@
+#!/bin/sh
+set -eu
+
+BASE_DIR=$(cd "$(dirname "$0")" && pwd)
+PROPERTIES_FILE="$BASE_DIR/.mvn/wrapper/maven-wrapper.properties"
+DISTRIBUTION_URL=$(sed -n 's/^distributionUrl=//p' "$PROPERTIES_FILE" | tr -d '\r')
+DISTRIBUTION_NAME=$(basename "$DISTRIBUTION_URL" -bin.zip)
+MAVEN_USER_HOME=${MAVEN_USER_HOME:-$HOME/.m2}
+INSTALL_DIR="$MAVEN_USER_HOME/wrapper/dists/$DISTRIBUTION_NAME"
+
+if [ ! -x "$INSTALL_DIR/bin/mvn" ]; then
+    TEMP_DIR=$(mktemp -d)
+    trap 'rm -rf "$TEMP_DIR"' EXIT
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$DISTRIBUTION_URL" -o "$TEMP_DIR/maven.zip"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q "$DISTRIBUTION_URL" -O "$TEMP_DIR/maven.zip"
+    else
+        echo "curl or wget is required to download Maven" >&2
+        exit 1
+    fi
+    unzip -q "$TEMP_DIR/maven.zip" -d "$TEMP_DIR"
+    mkdir -p "$INSTALL_DIR"
+    cp -R "$TEMP_DIR/$DISTRIBUTION_NAME/." "$INSTALL_DIR/"
+    chmod +x "$INSTALL_DIR/bin/mvn"
+fi
+
+exec "$INSTALL_DIR/bin/mvn" "$@"

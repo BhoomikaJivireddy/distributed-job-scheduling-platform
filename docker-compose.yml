@@ -1,0 +1,213 @@
+name: distributed-job-platform
+
+x-worker: &worker
+  build:
+    context: ./backend
+    dockerfile: Dockerfile.worker
+  restart: unless-stopped
+  depends_on:
+    mysql:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+    job-manager:
+      condition: service_healthy
+  environment: &worker-environment
+    MYSQL_HOST: mysql
+    MYSQL_PORT: 3306
+    MYSQL_DATABASE: ${MYSQL_DATABASE}
+    MYSQL_USER: ${MYSQL_USER}
+    MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    RABBITMQ_HOST: rabbitmq
+    RABBITMQ_PORT: 5672
+    RABBITMQ_USER: ${RABBITMQ_USER}
+    RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+    WORKER_CONCURRENCY: ${WORKER_CONCURRENCY}
+    LEASE_GRACE_SECONDS: ${LEASE_GRACE_SECONDS}
+    HEARTBEAT_INTERVAL_MS: ${HEARTBEAT_INTERVAL_MS}
+    RETRY_BASE_DELAY_SECONDS: ${RETRY_BASE_DELAY_SECONDS}
+    RETRY_MAX_DELAY_SECONDS: ${RETRY_MAX_DELAY_SECONDS}
+  healthcheck:
+    test: ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health"]
+    interval: 10s
+    timeout: 5s
+    retries: 12
+    start_period: 30s
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--default-time-zone=+00:00"]
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./infrastructure/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+    ports:
+      - "${RABBITMQ_MANAGEMENT_PORT}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+
+  job-manager:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.manager
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RETRY_BASE_DELAY_SECONDS: ${RETRY_BASE_DELAY_SECONDS}
+      RETRY_MAX_DELAY_SECONDS: ${RETRY_MAX_DELAY_SECONDS}
+      DISPATCH_INTERVAL_MS: ${DISPATCH_INTERVAL_MS}
+      DISPATCH_BATCH_SIZE: ${DISPATCH_BATCH_SIZE}
+      QUEUED_STALE_SECONDS: ${QUEUED_STALE_SECONDS}
+      LEASE_RECOVERY_INTERVAL_MS: ${LEASE_RECOVERY_INTERVAL_MS}
+      LEASE_RECOVERY_BATCH_SIZE: ${LEASE_RECOVERY_BATCH_SIZE}
+      LIVENESS_INTERVAL_MS: ${LIVENESS_INTERVAL_MS}
+      WORKER_TIMEOUT_SECONDS: ${WORKER_TIMEOUT_SECONDS}
+      GAUGE_REFRESH_INTERVAL_MS: ${GAUGE_REFRESH_INTERVAL_MS}
+      MAX_SCHEDULE_DAYS: ${MAX_SCHEDULE_DAYS}
+      PUBLISH_CONFIRM_TIMEOUT_MS: ${PUBLISH_CONFIRM_TIMEOUT_MS}
+    ports:
+      - "${JOB_MANAGER_PORT}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  worker-1:
+    <<: *worker
+    environment:
+      <<: *worker-environment
+      WORKER_ID: worker-1
+
+  worker-2:
+    <<: *worker
+    environment:
+      <<: *worker-environment
+      WORKER_ID: worker-2
+
+  worker-3:
+    <<: *worker
+    environment:
+      <<: *worker-environment
+      WORKER_ID: worker-3
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_GRAFANA_URL: ${GRAFANA_PUBLIC_URL}
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      job-manager:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    volumes:
+      - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "${HTTP_PORT}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/nginx-health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT}:9090"
+
+  loki:
+    image: grafana/loki:3.3.2
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki-config.yml"]
+    volumes:
+      - ./infrastructure/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+
+  alloy:
+    image: grafana/alloy:v1.5.1
+    restart: unless-stopped
+    command: ["run", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
+    depends_on:
+      - loki
+    volumes:
+      - ./infrastructure/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy-data:/var/lib/alloy/data
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+      - loki
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT}:3000"
+
+volumes:
+  mysql-data:
+  rabbitmq-data:
+  prometheus-data:
+  loki-data:
+  alloy-data:
+  grafana-data:

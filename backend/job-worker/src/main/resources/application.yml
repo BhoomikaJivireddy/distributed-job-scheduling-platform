@@ -1,0 +1,58 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: job-worker
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:jobplatform}?useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC
+    username: ${MYSQL_USER:jobplatform}
+    password: ${MYSQL_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:jobplatform}
+    password: ${RABBITMQ_PASSWORD}
+    listener:
+      simple:
+        acknowledge-mode: manual
+        concurrency: ${WORKER_CONCURRENCY:2}
+        max-concurrency: ${WORKER_CONCURRENCY:2}
+        prefetch: 1
+        default-requeue-rejected: false
+
+platform:
+  retry:
+    base-delay-seconds: ${RETRY_BASE_DELAY_SECONDS:5}
+    max-delay-seconds: ${RETRY_MAX_DELAY_SECONDS:300}
+  worker:
+    id: ${WORKER_ID:worker-local}
+    concurrency: ${WORKER_CONCURRENCY:2}
+    lease-grace-seconds: ${LEASE_GRACE_SECONDS:30}
+    heartbeat-interval-ms: ${HEARTBEAT_INTERVAL_MS:5000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: job-worker
+      worker: ${WORKER_ID:worker-local}
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSS'Z',UTC} %-5level [${WORKER_ID:worker-local}] [job=%X{jobId:--}] %logger{30} - %msg%n"

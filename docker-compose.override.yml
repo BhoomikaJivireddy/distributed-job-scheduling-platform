@@ -1,0 +1,7 @@
+services:
+  mysql:
+    ports:
+      - "3308:3306"
+  rabbitmq:
+    ports:
+      - "5672:5672"

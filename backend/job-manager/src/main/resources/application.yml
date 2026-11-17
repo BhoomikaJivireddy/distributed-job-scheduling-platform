@@ -1,0 +1,63 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: job-manager
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:jobplatform}?useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC
+    username: ${MYSQL_USER:jobplatform}
+    password: ${MYSQL_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:jobplatform}
+    password: ${RABBITMQ_PASSWORD}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+
+platform:
+  retry:
+    base-delay-seconds: ${RETRY_BASE_DELAY_SECONDS:5}
+    max-delay-seconds: ${RETRY_MAX_DELAY_SECONDS:300}
+  manager:
+    dispatch-interval-ms: ${DISPATCH_INTERVAL_MS:1000}
+    dispatch-batch-size: ${DISPATCH_BATCH_SIZE:50}
+    queued-stale-seconds: ${QUEUED_STALE_SECONDS:60}
+    lease-recovery-interval-ms: ${LEASE_RECOVERY_INTERVAL_MS:5000}
+    lease-recovery-batch-size: ${LEASE_RECOVERY_BATCH_SIZE:50}
+    liveness-interval-ms: ${LIVENESS_INTERVAL_MS:5000}
+    worker-timeout-seconds: ${WORKER_TIMEOUT_SECONDS:20}
+    gauge-refresh-interval-ms: ${GAUGE_REFRESH_INTERVAL_MS:10000}
+    max-schedule-days: ${MAX_SCHEDULE_DAYS:365}
+    publish-confirm-timeout-ms: ${PUBLISH_CONFIRM_TIMEOUT_MS:5000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: job-manager
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSS'Z',UTC} %-5level [job-manager] %logger{30} - %msg%n"
